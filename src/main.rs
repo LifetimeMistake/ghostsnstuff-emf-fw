@@ -51,6 +51,7 @@ fn main() {
         z: (Axis::Z, true),
     };
     let IMU_ALPHA: f32 = 0.9;
+    let IMU_CALIBRATION_SAMPLES: u32 = 1000;
 
     // Speaker init code
     let mut speaker_timer = LedcTimerDriver::new(
@@ -99,23 +100,11 @@ fn main() {
     println!("Calibrating IMU");
     led.set_colors(&fill_colors(LEVEL_1_COLOR, 5, 5, LED_ORDER)).unwrap();
 
-    let (bias_x, bias_y, bias_z) = imu.calibrate(500).unwrap();
+    let (bias_x, bias_y, bias_z) = imu.calibrate(IMU_CALIBRATION_SAMPLES).unwrap();
     println!(
         "Computed sensor bias: {:.2}, {:.2}, {:.2}",
         bias_x, bias_y, bias_z
     );
-
-    loop {
-        let data = imu.data().unwrap();
-        println!(
-            "Pitch: {:.2}, Roll: {:.2}, Yaw: {:.2}",
-            data.pitch,
-            data.roll,
-            data.yaw
-        );
-
-        sleep(Duration::from_millis(10));
-    }
 
     led.turn_off().unwrap();
 

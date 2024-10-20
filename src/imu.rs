@@ -38,7 +38,6 @@ pub struct AxisMapping {
 }
 
 const GRAVITY: f32 = 9.81;
-const DEFAULT_CALIBRATION_SAMPLES: u32 = 1000;
 
 fn get_mapped_axis(data: &Sensor3DDataScaled, mapping: &(Axis, bool)) -> f32 {
     let value = match mapping.0 {
