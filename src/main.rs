@@ -40,14 +40,14 @@ fn main() {
     let IMU_I2C_BAUDRATE = 100_u32.kHz();
     let IMU_ACCEL_RANGE = AccelerometerRange::G4;
     let IMU_ACCEL_MAP = AxisMapping {
-        x: (Axis::Y, false),
-        y: (Axis::X, true),
+        x: (Axis::X, false),
+        y: (Axis::Y, true),
         z: (Axis::Z, false),
     };
     let IMU_GYRO_RANGE = GyroscopeRange::Scale1000;
     let IMU_GYRO_MAP = AxisMapping {
-        x: (Axis::Y, false),
-        y: (Axis::X, true),
+        x: (Axis::X, true),
+        y: (Axis::Y, true),
         z: (Axis::Z, true),
     };
     let IMU_ALPHA: f32 = 0.9;
@@ -105,6 +105,18 @@ fn main() {
         "Computed sensor bias: {:.2}, {:.2}, {:.2}",
         bias_x, bias_y, bias_z
     );
+
+    loop {
+        let data = imu.data().unwrap();
+        println!(
+            "Pitch: {:.2}, Roll: {:.2}, Yaw: {:.2}",
+            data.pitch.to_degrees(),
+            data.roll.to_degrees(),
+            data.yaw.to_degrees()
+        );
+
+        sleep(Duration::from_millis(10));
+    }
 
     led.turn_off().unwrap();
 

@@ -13,22 +13,21 @@ pub enum Axis {
 }
 
 #[derive(Debug)]
+pub struct Vector3 {
+    pub x: f32,
+    pub y: f32,
+    pub z: f32,
+}
+
+#[derive(Debug)]
 pub struct IMUMeasurement {
-    pub raw_accel_x: f32,
-    pub raw_accel_y: f32,
-    pub raw_accel_z: f32,
-    pub raw_gyro_x: f32,
-    pub raw_gyro_y: f32,
-    pub raw_gyro_z: f32,
+    pub raw_accel: Vector3,
+    pub raw_gyro: Vector3,
     pub pitch: f32,
     pub yaw: f32,
     pub roll: f32,
-    pub gravity_x: f32,
-    pub gravity_y: f32,
-    pub gravity_z: f32,
-    pub acceleration_x: f32,
-    pub acceleration_y: f32,
-    pub acceleration_z: f32,
+    pub gravity: Vector3,
+    pub acceleration: Vector3,
 }
 
 pub struct AxisMapping {
@@ -61,8 +60,18 @@ fn remap_axes(data: &Sensor3DDataScaled, mapping: &AxisMapping) -> Sensor3DDataS
     }
 }
 
+fn wrap_angle(angle: f32) -> f32 {
+    if angle > PI {
+        angle - 2.0 * PI
+    } else if angle < -PI {
+        angle + 2.0 * PI
+    } else {
+        angle
+    }
+}
+
 // Function to rotate a vector using pitch, roll, and yaw
-fn rotate_vector(x: f32, y: f32, z: f32, pitch: f32, roll: f32, yaw: f32) -> (f32, f32, f32) {
+fn rotate_vector(v: &Vector3, pitch: f32, roll: f32, yaw: f32) -> Vector3 {
     let cos_pitch = pitch.cos();
     let sin_pitch = pitch.sin();
     let cos_roll = roll.cos();
@@ -82,11 +91,11 @@ fn rotate_vector(x: f32, y: f32, z: f32, pitch: f32, roll: f32, yaw: f32) -> (f3
     let r33 = cos_pitch * cos_roll;
 
     // Apply rotation
-    let new_x = r11 * x + r12 * y + r13 * z;
-    let new_y = r21 * x + r22 * y + r23 * z;
-    let new_z = r31 * x + r32 * y + r33 * z;
-
-    (new_x, new_y, new_z)
+    Vector3 {
+        x: r11 * v.x + r12 * v.y + r13 * v.z,
+        y: r21 * v.x + r22 * v.y + r23 * v.z,
+        z: r31 * v.x + r32 * v.y + r33 * v.z,
+    }
 }
 
 pub struct IMU<T, CommE>
@@ -98,14 +107,10 @@ where
     accel_mapping: Option<AxisMapping>,
     gyro_mapping: Option<AxisMapping>,
     prev_time: u32,
-    pitch: f32,
-    roll: f32,
-    yaw: f32,
-    accel_bias_x: f32,
-    accel_bias_y: f32,
-    accel_bias_z: f32,
+    orientation: Vector3,
+    accel_bias: Vector3,
     alpha: f32,
-    is_calibrated: bool
+    is_calibrated: bool,
 }
 
 impl<T, CommE> IMU<T, CommE>
@@ -124,14 +129,10 @@ where
             accel_mapping,
             gyro_mapping,
             prev_time: 0,
-            pitch: 0.0,
-            roll: 0.0,
-            yaw: 0.0,
-            accel_bias_x: 0.0,
-            accel_bias_y: 0.0,
-            accel_bias_z: 0.0,
+            orientation: Vector3 { x: 0.0, y: 0.0, z: 0.0 },
+            accel_bias: Vector3 { x: 0.0, y: 0.0, z: 0.0 },
             alpha: alpha.unwrap_or(0.9),
-            is_calibrated: false
+            is_calibrated: false,
         }
     }
 
@@ -142,20 +143,17 @@ where
         let gyro_raw = data.gyro.unwrap();
         let current_time = data.time.unwrap();
 
-        let accel;
-        let gyro;
-
-        if self.accel_mapping.is_some() {
-            accel = remap_axes(&accel_raw, self.accel_mapping.as_ref().unwrap());
+        let accel = if let Some(mapping) = &self.accel_mapping {
+            remap_axes(&accel_raw, mapping)
         } else {
-            accel = accel_raw;
-        }
+            accel_raw
+        };
 
-        if self.gyro_mapping.is_some() {
-            gyro = remap_axes(&gyro_raw, self.gyro_mapping.as_ref().unwrap());
+        let gyro = if let Some(mapping) = &self.gyro_mapping {
+            remap_axes(&gyro_raw, mapping)
         } else {
-            gyro = gyro_raw;
-        }
+            gyro_raw
+        };
 
         // Calculate delta time (dt) in seconds
         let dt_us = if current_time < self.prev_time {
@@ -166,68 +164,56 @@ where
         let dt = (dt_us as f32) / 1_000_000.0;
         self.prev_time = current_time;
 
-        let gyro_x = gyro.x * (PI / 180.0);
-        let gyro_y = gyro.y * (PI / 180.0);
-        let gyro_z = gyro.z * (PI / 180.0);
+        let gyro_rad = Vector3 {
+            x: gyro.x * (PI / 180.0),
+            y: gyro.y * (PI / 180.0),
+            z: gyro.z * (PI / 180.0),
+        };
 
-        let accel_x = accel.x * GRAVITY;
-        let accel_y = accel.y * GRAVITY;
-        let accel_z = accel.z * GRAVITY;
+        let accel_scaled = Vector3 {
+            x: accel.x * GRAVITY,
+            y: accel.y * GRAVITY,
+            z: accel.z * GRAVITY,
+        };
 
         // Calculate pitch and roll from accelerometer
-        let pitch_acc = (accel_y / (accel_x.powi(2) + accel_z.powi(2)).sqrt()).atan();
-        let roll_acc = (-accel_x / (accel_z.powi(2) + accel_y.powi(2)).sqrt()).atan();
+        let pitch_acc = (accel_scaled.y / (accel_scaled.x.powi(2) + accel_scaled.z.powi(2)).sqrt()).atan();
+        let roll_acc = (-accel_scaled.x / (accel_scaled.z.powi(2) + accel_scaled.y.powi(2)).sqrt()).atan();
 
         // Apply complementary filter
-        self.pitch = self.alpha * (self.pitch + gyro_y * dt) + (1.0 - self.alpha) * pitch_acc;
-        self.roll = self.alpha * (self.roll + gyro_x * dt) + (1.0 - self.alpha) * roll_acc;
-        self.yaw += gyro_z * dt; // yaw is accumulated without filtering
+        self.orientation.y = self.alpha * (self.orientation.y + gyro_rad.y * dt) + (1.0 - self.alpha) * pitch_acc;
+        self.orientation.x = self.alpha * (self.orientation.x + gyro_rad.x * dt) + (1.0 - self.alpha) * roll_acc;
+        self.orientation.z = self.orientation.z + gyro_rad.z * dt;
+        self.orientation.z = wrap_angle(self.orientation.z);
 
         // Rotate the gravity vector according to the orientation
-        let cos_pitch = self.pitch.cos();
-        let sin_pitch = self.pitch.sin();
-        let cos_roll = self.roll.cos();
-        let sin_roll = self.roll.sin();
+        let gravity_comp = Vector3 {
+            x: GRAVITY * self.orientation.y.sin(),
+            y: GRAVITY * self.orientation.x.sin(),
+            z: GRAVITY * (self.orientation.y.cos() * self.orientation.x.cos()),
+        };
 
-        let gravity_comp_x = GRAVITY * sin_pitch;
-        let gravity_comp_y = GRAVITY * sin_roll;
-        let gravity_comp_z = GRAVITY * (cos_pitch * cos_roll);
-
-        let (bias_x, bias_y, bias_z);
-        if apply_bias {
-            (bias_x, bias_y, bias_z) = rotate_vector(
-                self.accel_bias_x, 
-                self.accel_bias_y, 
-                self.accel_bias_z, 
-                self.pitch, 
-                self.roll, 
-                self.yaw
-            );
+        let bias = if apply_bias {
+            rotate_vector(&self.accel_bias, self.orientation.x, self.orientation.y, self.orientation.z)
         } else {
-            (bias_x, bias_y, bias_z) = (0.0, 0.0, 0.0);
-        }
+            Vector3 { x: 0.0, y: 0.0, z: 0.0 }
+        };
 
         // Apply gravity compensation to accelerometer readings
-        let acceleration_x = (accel_x - gravity_comp_x - bias_x) * dt;
-        let acceleration_y = (accel_y - gravity_comp_y - bias_y) * dt;
-        let acceleration_z = (accel_z - gravity_comp_z - bias_z) * dt;
+        let acceleration = Vector3 {
+            x: (accel_scaled.x - gravity_comp.x - bias.x) * dt,
+            y: (accel_scaled.y - gravity_comp.y - bias.y) * dt,
+            z: (accel_scaled.z - gravity_comp.z - bias.z) * dt,
+        };
 
         let result = IMUMeasurement {
-            raw_accel_x: accel_x,
-            raw_accel_y: accel_y,
-            raw_accel_z: accel_z,
-            raw_gyro_x: gyro_x,
-            raw_gyro_y: gyro_y,
-            raw_gyro_z: gyro_z,
-            pitch: self.pitch,
-            yaw: self.yaw,
-            roll: self.roll,
-            gravity_x: gravity_comp_x,
-            gravity_y: gravity_comp_y,
-            gravity_z: gravity_comp_z,
-            acceleration_x: acceleration_x,
-            acceleration_y: acceleration_y,
-            acceleration_z: acceleration_z
+            raw_accel: accel_scaled,
+            raw_gyro: gyro_rad,
+            pitch: self.orientation.x,
+            yaw: self.orientation.z,
+            roll: self.orientation.y,
+            gravity: gravity_comp,
+            acceleration,
         };
 
         Ok(result)
@@ -241,46 +227,44 @@ where
     }
 
     pub fn calibrate(&mut self, samples: u32) -> Result<(f32, f32, f32), Error<CommE>> {
-        let mut accel_measurements: Vec<(f32, f32, f32)> = Vec::new();
-        let mut gyro_measurements: Vec<(f32, f32, f32)> = Vec::new();
+        let mut accel_measurements: Vec<Vector3> = Vec::new();
+        let mut gyro_measurements: Vec<Vector3> = Vec::new();
 
         for _ in 0..samples {
             let m = self.read_data(false)?;
-            accel_measurements.push((m.raw_accel_x, m.raw_accel_y, m.raw_accel_z - GRAVITY));
-            gyro_measurements.push((m.pitch, m.yaw, m.roll));
+            accel_measurements.push(Vector3 {
+                x: m.raw_accel.x,
+                y: m.raw_accel.y,
+                z: m.raw_accel.z - GRAVITY,
+            });
+            gyro_measurements.push(Vector3 {
+                x: m.pitch,
+                y: m.yaw,
+                z: m.roll,
+            });
         }
 
-        let (abx, aby, abz): (f32, f32, f32) = accel_measurements
-            .iter()
-            .cloned()
-            .fold((0.0, 0.0, 0.0), |(sum_x, sum_y, sum_z), (x, y, z)| {
-                (sum_x + x, sum_y + y, sum_z + z)
-            });
+        let (abx, aby, abz) = accel_measurements.iter().fold((0.0, 0.0, 0.0), |(sum_x, sum_y, sum_z), v| {
+            (sum_x + v.x, sum_y + v.y, sum_z + v.z)
+        });
 
-        let (gbx, gby, gbz): (f32, f32, f32) = gyro_measurements
-            .iter()
-            .cloned()
-            .fold((0.0, 0.0, 0.0), |(sum_x, sum_y, sum_z), (x, y, z)| {
-                (sum_x + x, sum_y + y, sum_z + z)
-            });
+        let (gbx, gby, gbz) = gyro_measurements.iter().fold((0.0, 0.0, 0.0), |(sum_x, sum_y, sum_z), v| {
+            (sum_x + v.x, sum_y + v.y, sum_z + v.z)
+        });
 
-        let accel_bias_x: f32 = abx / accel_measurements.len() as f32;
-        let accel_bias_y: f32 = aby / accel_measurements.len() as f32;
-        let accel_bias_z: f32 = abz / accel_measurements.len() as f32;
-        let avg_gyro_x: f32 = gbx / gyro_measurements.len() as f32;
-        let avg_gyro_y: f32 = gby / gyro_measurements.len() as f32;
-        let avg_gyro_z: f32 = gbz / gyro_measurements.len() as f32;
+        let accel_bias = Vector3 {
+            x: abx / accel_measurements.len() as f32,
+            y: aby / accel_measurements.len() as f32,
+            z: abz / accel_measurements.len() as f32,
+        };
+        let avg_gyro = Vector3 {
+            x: gbx / gyro_measurements.len() as f32,
+            y: gby / gyro_measurements.len() as f32,
+            z: gbz / gyro_measurements.len() as f32,
+        };
 
-        (self.accel_bias_x, self.accel_bias_y, self.accel_bias_z) = rotate_vector(
-            accel_bias_x,
-            accel_bias_y,
-            accel_bias_z,
-            -avg_gyro_x,
-            -avg_gyro_y,
-            -avg_gyro_z
-        );
-
+        self.accel_bias = rotate_vector(&accel_bias, -avg_gyro.x, -avg_gyro.y, -avg_gyro.z);
         self.is_calibrated = true;
-        Ok((self.accel_bias_x, self.accel_bias_y, self.accel_bias_z))
+        Ok((self.accel_bias.x, self.accel_bias.y, self.accel_bias.z))
     }
 }
