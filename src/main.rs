@@ -1,13 +1,11 @@
 #![feature(const_float_methods)]
 #![allow(non_snake_case)]
 
+pub mod vector;
+pub mod utils;
 pub mod imu;
 pub mod led;
 pub mod speaker;
-pub mod utils;
-
-use std::thread::sleep;
-use std::time::Duration;
 
 use bmi160::{AccelerometerRange, Bmi160, GyroscopeRange, SlaveAddr};
 use esp_idf_hal::i2c::{I2cConfig, I2cDriver};
@@ -105,18 +103,6 @@ fn main() {
         "Computed sensor bias: {:.2}, {:.2}, {:.2}",
         bias_x, bias_y, bias_z
     );
-
-    loop {
-        let data = imu.data().unwrap();
-        println!(
-            "Pitch: {:.2}, Roll: {:.2}, Yaw: {:.2}",
-            data.pitch.to_degrees(),
-            data.roll.to_degrees(),
-            data.yaw.to_degrees()
-        );
-
-        sleep(Duration::from_millis(10));
-    }
 
     led.turn_off().unwrap();
 

@@ -1,4 +1,5 @@
 use std::{f32::consts::PI, fmt::Debug};
+use crate::vector::Vector3;
 
 use bmi160::{
     interface::{ReadData, WriteData},
@@ -10,13 +11,6 @@ pub enum Axis {
     X,
     Y,
     Z,
-}
-
-#[derive(Debug)]
-pub struct Vector3 {
-    pub x: f32,
-    pub y: f32,
-    pub z: f32,
 }
 
 #[derive(Debug)]
@@ -91,11 +85,11 @@ fn rotate_vector(v: &Vector3, pitch: f32, roll: f32, yaw: f32) -> Vector3 {
     let r33 = cos_pitch * cos_roll;
 
     // Apply rotation
-    Vector3 {
-        x: r11 * v.x + r12 * v.y + r13 * v.z,
-        y: r21 * v.x + r22 * v.y + r23 * v.z,
-        z: r31 * v.x + r32 * v.y + r33 * v.z,
-    }
+    Vector3::new(
+        r11 * v.x + r12 * v.y + r13 * v.z,
+        r21 * v.x + r22 * v.y + r23 * v.z,
+        r31 * v.x + r32 * v.y + r33 * v.z,
+    )
 }
 
 pub struct IMU<T, CommE>
@@ -129,8 +123,8 @@ where
             accel_mapping,
             gyro_mapping,
             prev_time: 0,
-            orientation: Vector3 { x: 0.0, y: 0.0, z: 0.0 },
-            accel_bias: Vector3 { x: 0.0, y: 0.0, z: 0.0 },
+            orientation: Vector3::new(0.0, 0.0, 0.0),
+            accel_bias: Vector3::new(0.0, 0.0, 0.0),
             alpha: alpha.unwrap_or(0.9),
             is_calibrated: false,
         }
@@ -164,17 +158,17 @@ where
         let dt = (dt_us as f32) / 1_000_000.0;
         self.prev_time = current_time;
 
-        let gyro_rad = Vector3 {
-            x: gyro.x * (PI / 180.0),
-            y: gyro.y * (PI / 180.0),
-            z: gyro.z * (PI / 180.0),
-        };
+        let gyro_rad = Vector3::new(
+            gyro.x * (PI / 180.0),
+            gyro.y * (PI / 180.0),
+            gyro.z * (PI / 180.0),
+        );
 
-        let accel_scaled = Vector3 {
-            x: accel.x * GRAVITY,
-            y: accel.y * GRAVITY,
-            z: accel.z * GRAVITY,
-        };
+        let accel_scaled = Vector3::new(
+            accel.x * GRAVITY,
+            accel.y * GRAVITY,
+            accel.z * GRAVITY,
+        );
 
         // Calculate pitch and roll from accelerometer
         let pitch_acc = (accel_scaled.y / (accel_scaled.x.powi(2) + accel_scaled.z.powi(2)).sqrt()).atan();
@@ -187,24 +181,24 @@ where
         self.orientation.z = wrap_angle(self.orientation.z);
 
         // Rotate the gravity vector according to the orientation
-        let gravity_comp = Vector3 {
-            x: GRAVITY * self.orientation.y.sin(),
-            y: GRAVITY * self.orientation.x.sin(),
-            z: GRAVITY * (self.orientation.y.cos() * self.orientation.x.cos()),
-        };
+        let gravity_comp = Vector3::new(
+            GRAVITY * self.orientation.y.sin(),
+            GRAVITY * self.orientation.x.sin(),
+            GRAVITY * (self.orientation.y.cos() * self.orientation.x.cos()),
+        );
 
         let bias = if apply_bias {
             rotate_vector(&self.accel_bias, self.orientation.x, self.orientation.y, self.orientation.z)
         } else {
-            Vector3 { x: 0.0, y: 0.0, z: 0.0 }
+            Vector3::new(0.0, 0.0, 0.0)
         };
 
         // Apply gravity compensation to accelerometer readings
-        let acceleration = Vector3 {
-            x: (accel_scaled.x - gravity_comp.x - bias.x) * dt,
-            y: (accel_scaled.y - gravity_comp.y - bias.y) * dt,
-            z: (accel_scaled.z - gravity_comp.z - bias.z) * dt,
-        };
+        let acceleration = Vector3::new(
+            (accel_scaled.x - gravity_comp.x - bias.x) * dt,
+            (accel_scaled.y - gravity_comp.y - bias.y) * dt,
+            (accel_scaled.z - gravity_comp.z - bias.z) * dt,
+        );
 
         let result = IMUMeasurement {
             raw_accel: accel_scaled,
@@ -232,16 +226,16 @@ where
 
         for _ in 0..samples {
             let m = self.read_data(false)?;
-            accel_measurements.push(Vector3 {
-                x: m.raw_accel.x,
-                y: m.raw_accel.y,
-                z: m.raw_accel.z - GRAVITY,
-            });
-            gyro_measurements.push(Vector3 {
-                x: m.pitch,
-                y: m.yaw,
-                z: m.roll,
-            });
+            accel_measurements.push(Vector3::new( 
+                m.raw_accel.x,
+                m.raw_accel.y,
+                m.raw_accel.z - GRAVITY,
+            ));
+            gyro_measurements.push(Vector3::new(
+                m.pitch,
+                m.yaw,
+                m.roll,
+            ));
         }
 
         let (abx, aby, abz) = accel_measurements.iter().fold((0.0, 0.0, 0.0), |(sum_x, sum_y, sum_z), v| {
@@ -252,16 +246,16 @@ where
             (sum_x + v.x, sum_y + v.y, sum_z + v.z)
         });
 
-        let accel_bias = Vector3 {
-            x: abx / accel_measurements.len() as f32,
-            y: aby / accel_measurements.len() as f32,
-            z: abz / accel_measurements.len() as f32,
-        };
-        let avg_gyro = Vector3 {
-            x: gbx / gyro_measurements.len() as f32,
-            y: gby / gyro_measurements.len() as f32,
-            z: gbz / gyro_measurements.len() as f32,
-        };
+        let accel_bias = Vector3::new(
+            abx / accel_measurements.len() as f32,
+            aby / accel_measurements.len() as f32,
+            abz / accel_measurements.len() as f32,
+        );
+        let avg_gyro = Vector3::new(
+            gbx / gyro_measurements.len() as f32,
+            gby / gyro_measurements.len() as f32,
+            gbz / gyro_measurements.len() as f32,
+        );
 
         self.accel_bias = rotate_vector(&accel_bias, -avg_gyro.x, -avg_gyro.y, -avg_gyro.z);
         self.is_calibrated = true;
