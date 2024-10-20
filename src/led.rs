@@ -4,7 +4,7 @@ use esp_idf_hal::{
 };
 use std::time::Duration;
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LEDOrder {
     Normal,
     Reverse,
@@ -17,7 +17,7 @@ pub const LEVEL_4_COLOR: Rgb = Rgb::from_hsv(20, 100, 3);
 pub const LEVEL_5_COLOR: Rgb = Rgb::from_hsv(0, 100, 3);
 pub const OFF_COLOR: Rgb = Rgb::new(0, 0, 0);
 
-pub fn get_emf_colors(level: u8) -> [Rgb; 5] {
+pub fn get_emf_colors(level: u8, order: LEDOrder) -> [Rgb; 5] {
     let mut colors = [OFF_COLOR; 5];
 
     if level >= 6 {
@@ -45,9 +45,35 @@ pub fn get_emf_colors(level: u8) -> [Rgb; 5] {
         colors[4] = LEVEL_5_COLOR;
     }
 
+    if order == LEDOrder::Reverse {
+        colors.reverse();
+    }
+
     colors
 }
 
+pub fn fill_colors(color: Rgb, on_count: u32, total: u32, order: LEDOrder) -> Vec<Rgb> {
+    if on_count > total {
+        panic!("Invalid amount of LEDs specified");
+    }
+
+    let mut colors = Vec::new();
+    for _ in 0..on_count {
+        colors.push(color);
+    }
+
+    for _ in 0..(total - on_count) {
+        colors.push(OFF_COLOR);
+    }
+
+    if order == LEDOrder::Reverse {
+        colors.reverse();
+    }
+
+    colors
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
 pub struct Rgb {
     pub r: u8,
     pub g: u8,

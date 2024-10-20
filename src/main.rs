@@ -18,7 +18,7 @@ use esp_idf_hal::rmt::TxRmtDriver;
 
 use esp_idf_hal::units::FromValueType;
 use imu::{Axis, AxisMapping, IMU};
-use led::{get_emf_colors, LEDOrder, Ws2812};
+use led::{fill_colors, get_emf_colors, LEDOrder, Ws2812, LEVEL_1_COLOR};
 use speaker::{get_emf_pcm, PWMSpeaker};
 use utils::ledc_resolution_to_u32;
 
@@ -96,35 +96,24 @@ fn main() {
         Some(IMU_ALPHA)
     );
 
+    println!("Calibrating IMU");
+    led.set_colors(&fill_colors(LEVEL_1_COLOR, 5, 5, LED_ORDER)).unwrap();
+
     let (bias_x, bias_y, bias_z) = imu.calibrate(500).unwrap();
     println!(
-        "computed sensor bias: {:.2}, {:.2}, {:.2}",
+        "Computed sensor bias: {:.2}, {:.2}, {:.2}",
         bias_x, bias_y, bias_z
     );
 
-    loop {
-        let measurement: imu::IMUMeasurement = imu.data().unwrap();
-        println!(
-            "Pitch: {:.2}, Roll: {:.2}, Yaw: {:.2}",
-            measurement.pitch,
-            measurement.roll,
-            measurement.yaw,
-        );
-        sleep(Duration::from_millis(10));
-    }
+    led.turn_off().unwrap();
 
-    for _ in 0..3 {
-        for level in 1..7 {
-            let mut colors = get_emf_colors(level);
-            if LED_ORDER == LEDOrder::Reverse {
-                colors.reverse();
-            }
-            led.set_colors(&colors).unwrap();
+    for level in 1..7 {
+        let colors = get_emf_colors(level, LED_ORDER);
+        led.set_colors(&colors).unwrap();
 
-            if level >= 2 {
-                let pcm_data = get_emf_pcm(level, SAMPLE_RATE, SAMPLE_DURATION_MS).unwrap();
-                speaker.play_pcm(&pcm_data, SAMPLE_RATE).unwrap();
-            }
+        if level >= 2 {
+            let pcm_data = get_emf_pcm(level, SAMPLE_RATE, SAMPLE_DURATION_MS).unwrap();
+            speaker.play_pcm(&pcm_data, SAMPLE_RATE).unwrap();
         }
     }
 
