@@ -105,6 +105,18 @@ fn main() {
         bias_x, bias_y, bias_z
     );
 
+    loop {
+        let data = imu.data().unwrap();
+        println!(
+            "Pitch: {:.2}, Roll: {:.2}, Yaw: {:.2}",
+            data.pitch,
+            data.roll,
+            data.yaw
+        );
+
+        sleep(Duration::from_millis(10));
+    }
+
     led.turn_off().unwrap();
 
     for level in 1..7 {

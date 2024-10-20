@@ -236,7 +236,7 @@ where
 
     pub fn data(&mut self) -> Result<IMUMeasurement, Error<CommE>> {
         if !self.is_calibrated {
-            self.calibrate(500)?;
+            return Err(Error::InvalidInputData);
         }
         self.read_data(true)
     }
@@ -248,7 +248,7 @@ where
         for _ in 0..samples {
             let m = self.read_data(false)?;
             accel_measurements.push((m.raw_accel_x, m.raw_accel_y, m.raw_accel_z - GRAVITY));
-            gyro_measurements.push((m.raw_gyro_x, m.raw_gyro_y, m.raw_gyro_z));
+            gyro_measurements.push((m.pitch, m.yaw, m.roll));
         }
 
         let (abx, aby, abz): (f32, f32, f32) = accel_measurements
@@ -276,8 +276,8 @@ where
             accel_bias_x,
             accel_bias_y,
             accel_bias_z,
-            -avg_gyro_y,
             -avg_gyro_x,
+            -avg_gyro_y,
             -avg_gyro_z
         );
 
