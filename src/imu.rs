@@ -29,12 +29,6 @@ pub struct IMUMeasurement {
     pub acceleration_x: f32,
     pub acceleration_y: f32,
     pub acceleration_z: f32,
-    pub velocity_x: f32,
-    pub velocity_y: f32,
-    pub velocity_z: f32,
-    pub position_x: f32,
-    pub position_y: f32,
-    pub position_z: f32,
 }
 
 pub struct AxisMapping {
@@ -44,6 +38,7 @@ pub struct AxisMapping {
 }
 
 const GRAVITY: f32 = 9.81;
+const DEFAULT_CALIBRATION_SAMPLES: u32 = 1000;
 
 fn get_mapped_axis(data: &Sensor3DDataScaled, mapping: &(Axis, bool)) -> f32 {
     let value = match mapping.0 {
@@ -107,16 +102,10 @@ where
     pitch: f32,
     roll: f32,
     yaw: f32,
-    bias_x: f32,
-    bias_y: f32,
-    bias_z: f32,
+    accel_bias_x: f32,
+    accel_bias_y: f32,
+    accel_bias_z: f32,
     alpha: f32,
-    velocity_x: f32,
-    velocity_y: f32,
-    velocity_z: f32,
-    position_x: f32,
-    position_y: f32,
-    position_z: f32,
     is_calibrated: bool
 }
 
@@ -139,16 +128,10 @@ where
             pitch: 0.0,
             roll: 0.0,
             yaw: 0.0,
-            bias_x: 0.0,
-            bias_y: 0.0,
-            bias_z: 0.0,
+            accel_bias_x: 0.0,
+            accel_bias_y: 0.0,
+            accel_bias_z: 0.0,
             alpha: alpha.unwrap_or(0.9),
-            position_x: 0.0,
-            position_y: 0.0,
-            position_z: 0.0,
-            velocity_x: 0.0,
-            velocity_y: 0.0,
-            velocity_z: 0.0,
             is_calibrated: false
         }
     }
@@ -214,9 +197,9 @@ where
         let (bias_x, bias_y, bias_z);
         if apply_bias {
             (bias_x, bias_y, bias_z) = rotate_vector(
-                self.bias_x, 
-                self.bias_y, 
-                self.bias_z, 
+                self.accel_bias_x, 
+                self.accel_bias_y, 
+                self.accel_bias_z, 
                 self.pitch, 
                 self.roll, 
                 self.yaw
@@ -229,18 +212,6 @@ where
         let acceleration_x = (accel_x - gravity_comp_x - bias_x) * dt;
         let acceleration_y = (accel_y - gravity_comp_y - bias_y) * dt;
         let acceleration_z = (accel_z - gravity_comp_z - bias_z) * dt;
-
-        if (self.is_calibrated) {
-            // Integrate acceleration to update velocity
-            self.velocity_x += acceleration_x;
-            self.velocity_y += acceleration_y;
-            self.velocity_z += acceleration_z;
-
-            // Integrate velocity to update position
-            self.position_x += self.velocity_x * dt;
-            self.position_y += self.velocity_y * dt;
-            self.position_z += self.velocity_z * dt;
-        }
 
         let result = IMUMeasurement {
             raw_accel_x: accel_x,
@@ -257,32 +228,17 @@ where
             gravity_z: gravity_comp_z,
             acceleration_x: acceleration_x,
             acceleration_y: acceleration_y,
-            acceleration_z: acceleration_z,
-            velocity_x: self.velocity_x,
-            velocity_y: self.velocity_y,
-            velocity_z: self.velocity_z,
-            position_x: self.position_x,
-            position_y: self.position_y,
-            position_z: self.position_z
+            acceleration_z: acceleration_z
         };
 
         Ok(result)
     }
 
     pub fn data(&mut self) -> Result<IMUMeasurement, Error<CommE>> {
-        if (!self.is_calibrated) {
+        if !self.is_calibrated {
             self.calibrate(500)?;
         }
         self.read_data(true)
-    }
-
-    pub fn reset_position(&mut self) {
-        self.position_x = 0.0;
-        self.position_y = 0.0;
-        self.position_z = 0.0;
-        self.velocity_x = 0.0;
-        self.velocity_y = 0.0;
-        self.velocity_z = 0.0;
     }
 
     pub fn calibrate(&mut self, samples: u32) -> Result<(f32, f32, f32), Error<CommE>> {
@@ -316,7 +272,7 @@ where
         let avg_gyro_y: f32 = gby / gyro_measurements.len() as f32;
         let avg_gyro_z: f32 = gbz / gyro_measurements.len() as f32;
 
-        (self.bias_x, self.bias_y, self.bias_z) = rotate_vector(
+        (self.accel_bias_x, self.accel_bias_y, self.accel_bias_z) = rotate_vector(
             accel_bias_x,
             accel_bias_y,
             accel_bias_z,
@@ -326,8 +282,6 @@ where
         );
 
         self.is_calibrated = true;
-        Ok((self.bias_x, self.bias_y, self.bias_z))
+        Ok((self.accel_bias_x, self.accel_bias_y, self.accel_bias_z))
     }
-
-    // pub fn get_heading(&mut self) -> Result<(f32, f32, f32)
 }

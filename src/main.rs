@@ -84,20 +84,10 @@ fn main() {
     )
     .unwrap();
     let mut imu_driver = Bmi160::new_with_i2c(imu_i2c, SlaveAddr::Alternative(true));
-
-    println!("IMU SETUP");
-    println!("Chip ID: {}", imu_driver.chip_id().unwrap());
-
-    imu_driver.set_accel_power_mode(bmi160::AccelerometerPowerMode::Normal)
-        .unwrap();
+    imu_driver.set_accel_power_mode(bmi160::AccelerometerPowerMode::Normal).unwrap();
     imu_driver.set_accel_range(IMU_ACCEL_RANGE).unwrap();
-    imu_driver.set_gyro_power_mode(bmi160::GyroscopePowerMode::Normal)
-        .unwrap();
+    imu_driver.set_gyro_power_mode(bmi160::GyroscopePowerMode::Normal).unwrap();
     imu_driver.set_gyro_range(IMU_GYRO_RANGE).unwrap();
-
-    println!("COMPLETE");
-    println!("Status: {:?}", imu_driver.status().unwrap());
-    println!("Power mode: {:?}", imu_driver.power_mode().unwrap());
 
     let mut imu = IMU::new(
         imu_driver, 
@@ -115,13 +105,10 @@ fn main() {
     loop {
         let measurement: imu::IMUMeasurement = imu.data().unwrap();
         println!(
-            "Px: {:.2}, Py: {:.2}, Pz: {:.2}",
-            // measurement.pitch,
-            // measurement.roll,
-            // measurement.yaw,
-            measurement.position_x,
-            measurement.position_y,
-            measurement.position_z
+            "Pitch: {:.2}, Roll: {:.2}, Yaw: {:.2}",
+            measurement.pitch,
+            measurement.roll,
+            measurement.yaw,
         );
         sleep(Duration::from_millis(10));
     }
