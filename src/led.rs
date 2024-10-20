@@ -19,6 +19,15 @@ pub const OFF_COLOR: Rgb = Rgb::new(0, 0, 0);
 pub fn get_emf_colors(level: u8) -> [Rgb; 5] {
     let mut colors = [OFF_COLOR; 5];
     
+    if level >= 6 {
+        colors[0] = LEVEL_5_COLOR;
+        colors[1] = LEVEL_5_COLOR;
+        colors[2] = LEVEL_5_COLOR;
+        colors[3] = LEVEL_5_COLOR;
+        colors[4] = LEVEL_5_COLOR;
+        return colors;
+    }
+    
     if level >= 1 { colors[0] = LEVEL_1_COLOR; }
     if level >= 2 { colors[1] = LEVEL_2_COLOR; }
     if level >= 3 { colors[2] = LEVEL_3_COLOR; }

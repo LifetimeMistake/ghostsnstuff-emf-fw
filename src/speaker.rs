@@ -6,6 +6,7 @@ pub const LEVEL_2_FREQ: u32 = 400;
 pub const LEVEL_3_FREQ: u32 = 450;
 pub const LEVEL_4_FREQ: u32 = 550;
 pub const LEVEL_5_FREQ: u32 = 700;
+pub const LEVEL_6_FREQ: u32 = 1000;
 
 pub fn generate_square_wave(frequency: u32, duration_ms: u32, sample_rate: u32) -> Vec<u8> {
     let mut pcm_data = Vec::new();
@@ -31,6 +32,7 @@ pub fn get_emf_pcm(level: u8, sample_rate: u32, duration_ms: u32) -> Result<Vec<
         3 => LEVEL_3_FREQ,
         4 => LEVEL_4_FREQ,
         5 => LEVEL_5_FREQ,
+        6 => LEVEL_6_FREQ,
         _ => {
             return Err("Unknown level".to_string())
         }
