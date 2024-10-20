@@ -1,12 +1,13 @@
-use std::time::Duration;
 use esp_idf_hal::{
-    rmt::{PinState, Pulse, TxRmtDriver, VariableLengthSignal}, sys::EspError,
+    rmt::{PinState, Pulse, TxRmtDriver, VariableLengthSignal},
+    sys::EspError,
 };
+use std::time::Duration;
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum LEDOrder {
     Normal,
-    Reverse
+    Reverse,
 }
 
 pub const LEVEL_1_COLOR: Rgb = Rgb::from_hsv(190, 100, 3);
@@ -18,7 +19,7 @@ pub const OFF_COLOR: Rgb = Rgb::new(0, 0, 0);
 
 pub fn get_emf_colors(level: u8) -> [Rgb; 5] {
     let mut colors = [OFF_COLOR; 5];
-    
+
     if level >= 6 {
         colors[0] = LEVEL_5_COLOR;
         colors[1] = LEVEL_5_COLOR;
@@ -27,12 +28,22 @@ pub fn get_emf_colors(level: u8) -> [Rgb; 5] {
         colors[4] = LEVEL_5_COLOR;
         return colors;
     }
-    
-    if level >= 1 { colors[0] = LEVEL_1_COLOR; }
-    if level >= 2 { colors[1] = LEVEL_2_COLOR; }
-    if level >= 3 { colors[2] = LEVEL_3_COLOR; }
-    if level >= 4 { colors[3] = LEVEL_4_COLOR; }
-    if level >= 5 { colors[4] = LEVEL_5_COLOR; }
+
+    if level >= 1 {
+        colors[0] = LEVEL_1_COLOR;
+    }
+    if level >= 2 {
+        colors[1] = LEVEL_2_COLOR;
+    }
+    if level >= 3 {
+        colors[2] = LEVEL_3_COLOR;
+    }
+    if level >= 4 {
+        colors[3] = LEVEL_4_COLOR;
+    }
+    if level >= 5 {
+        colors[4] = LEVEL_5_COLOR;
+    }
 
     colors
 }
@@ -84,7 +95,6 @@ impl From<&Rgb> for u32 {
         ((rgb.g as u32) << 16) | ((rgb.r as u32) << 8) | rgb.b as u32
     }
 }
-
 
 pub struct Ws2812<'a, 'b> {
     tx: &'a mut TxRmtDriver<'b>,

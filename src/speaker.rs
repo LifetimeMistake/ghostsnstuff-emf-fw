@@ -1,5 +1,9 @@
+use esp_idf_hal::{
+    ledc::{LedcDriver, LedcTimer, LedcTimerDriver},
+    sys::EspError,
+    units::FromValueType,
+};
 use std::{thread::sleep, time::Duration};
-use esp_idf_hal::{ledc::{LedcDriver, LedcTimer, LedcTimerDriver}, sys::EspError, units::FromValueType};
 
 pub const LEVEL_1_FREQ: u32 = 350;
 pub const LEVEL_2_FREQ: u32 = 400;
@@ -33,30 +37,34 @@ pub fn get_emf_pcm(level: u8, sample_rate: u32, duration_ms: u32) -> Result<Vec<
         4 => LEVEL_4_FREQ,
         5 => LEVEL_5_FREQ,
         6 => LEVEL_6_FREQ,
-        _ => {
-            return Err("Unknown level".to_string())
-        }
+        _ => return Err("Unknown level".to_string()),
     };
 
     return Ok(generate_square_wave(frequency, duration_ms, sample_rate));
 }
 
-pub struct PWMSpeaker<'a, 'b, T> 
-where T: LedcTimer 
+pub struct PWMSpeaker<'a, 'b, T>
+where
+    T: LedcTimer,
 {
     driver: &'a mut LedcDriver<'b>,
     timer: &'a mut LedcTimerDriver<'b, T>,
-    pwm_resolution: u32
+    pwm_resolution: u32,
 }
 
-impl<'a, 'b, T> PWMSpeaker<'a, 'b, T> 
-where T : LedcTimer
+impl<'a, 'b, T> PWMSpeaker<'a, 'b, T>
+where
+    T: LedcTimer,
 {
-    pub fn new(driver: &'a mut LedcDriver<'b>, timer: &'a mut LedcTimerDriver<'b, T>, pwm_resolution: u32) -> Self {
+    pub fn new(
+        driver: &'a mut LedcDriver<'b>,
+        timer: &'a mut LedcTimerDriver<'b, T>,
+        pwm_resolution: u32,
+    ) -> Self {
         Self {
             driver,
             timer,
-            pwm_resolution
+            pwm_resolution,
         }
     }
 
@@ -67,7 +75,7 @@ where T : LedcTimer
         for &sample in pcm_data {
             let duty_cycle = ((sample as u32 * self.pwm_resolution) / 255) as u32;
             let sample_period = Duration::from_micros(1_000_000 as u64 / sample_rate as u64);
-            
+
             self.driver.set_duty(duty_cycle)?;
             sleep(sample_period);
         }
@@ -76,7 +84,12 @@ where T : LedcTimer
         Ok(())
     }
 
-    pub fn play_frequency(&mut self, frequency: u32, sample_rate: u32, duration_ms: u32) -> Result<(), EspError> {
+    pub fn play_frequency(
+        &mut self,
+        frequency: u32,
+        sample_rate: u32,
+        duration_ms: u32,
+    ) -> Result<(), EspError> {
         let pcm_data = generate_square_wave(frequency, duration_ms, sample_rate);
         self.play_pcm(&pcm_data, sample_rate)
     }
