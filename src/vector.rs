@@ -1,4 +1,4 @@
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub struct Vector3 {
     pub x: f32,
     pub y: f32,
@@ -16,6 +16,9 @@ impl Vector3 {
     
     pub fn normalize(&self) -> Vector3 {
         let magnitude = (self.x.powi(2) + self.y.powi(2) + self.z.powi(2)).sqrt();
+        if magnitude == 0.0 {
+            return Vector3::new(0.0, 0.0, 0.0); // Handle zero magnitude
+        }
         Vector3 {
             x: self.x / magnitude,
             y: self.y / magnitude,
