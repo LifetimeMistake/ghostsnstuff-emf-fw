@@ -12,7 +12,7 @@ pub enum LEDOrder {
 
 pub const LEVEL_1_COLOR: Rgb = Rgb::from_hsv(190, 100, 3);
 pub const LEVEL_2_COLOR: Rgb = Rgb::from_hsv(111, 80, 3);
-pub const LEVEL_3_COLOR: Rgb = Rgb::from_hsv(40, 100, 3);
+pub const LEVEL_3_COLOR: Rgb = Rgb::from_hsv(30, 100, 5);
 pub const LEVEL_4_COLOR: Rgb = Rgb::from_hsv(20, 100, 3);
 pub const LEVEL_5_COLOR: Rgb = Rgb::from_hsv(0, 100, 3);
 pub const OFF_COLOR: Rgb = Rgb::new(0, 0, 0);
