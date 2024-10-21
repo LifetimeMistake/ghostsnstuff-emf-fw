@@ -5,9 +5,14 @@ pub mod vector;
 pub mod utils;
 pub mod imu;
 pub mod led;
+pub mod emf;
 pub mod speaker;
 
+use std::thread::sleep;
+use std::time::{Duration, Instant};
+
 use bmi160::{AccelerometerRange, Bmi160, GyroscopeRange, SlaveAddr};
+use emf::{EMFReader, Ghost, User};
 use esp_idf_hal::i2c::{I2cConfig, I2cDriver};
 use esp_idf_hal::ledc::{self, config::TimerConfig, LedcDriver, LedcTimerDriver};
 use esp_idf_hal::peripherals::Peripherals;
@@ -16,9 +21,10 @@ use esp_idf_hal::rmt::TxRmtDriver;
 
 use esp_idf_hal::units::FromValueType;
 use imu::{Axis, AxisMapping, IMU};
-use led::{fill_colors, get_emf_colors, LEDOrder, Ws2812, LEVEL_1_COLOR};
+use led::{fill_colors, get_emf_colors, LEDOrder, Ws2812, LEVEL_1_COLOR, LEVEL_2_COLOR, LEVEL_3_COLOR, LEVEL_5_COLOR};
 use speaker::{get_emf_pcm, PWMSpeaker};
-use utils::ledc_resolution_to_u32;
+use utils::{ledc_resolution_to_u32, ERROR_TUNE_NOTES, SUCCESS_TUNE_NOTES};
+use vector::Vector3;
 
 fn main() {
     esp_idf_svc::sys::link_patches();
@@ -29,7 +35,7 @@ fn main() {
     let SPEAKER_PIN = peripherals.pins.gpio8;
     let SPEAKER_RESOLUTION = ledc::Resolution::Bits8;
     let SAMPLE_RATE = 8000;
-    let SAMPLE_DURATION_MS = 3000;
+    let SAMPLE_DURATION_MS = 10;
     let LED_PIN = peripherals.pins.gpio5;
     let LED_ORDER = LEDOrder::Reverse;
     let IMU_I2C_DEVICE = peripherals.i2c0;
@@ -95,26 +101,107 @@ fn main() {
         Some(IMU_ALPHA)
     );
 
-    println!("Calibrating IMU");
-    led.set_colors(&fill_colors(LEVEL_1_COLOR, 5, 5, LED_ORDER)).unwrap();
+    loop {
+        // Attempt to calibrate IMU
+        println!("Calibrating IMU");
+        led.set_colors(&fill_colors(LEVEL_3_COLOR, 5, 5, LED_ORDER)).unwrap();
+        let result = imu.calibrate(IMU_CALIBRATION_SAMPLES);
 
-    let (bias_x, bias_y, bias_z) = imu.calibrate(IMU_CALIBRATION_SAMPLES).unwrap();
-    println!(
-        "Computed sensor bias: {:.2}, {:.2}, {:.2}",
-        bias_x, bias_y, bias_z
-    );
-
-    led.turn_off().unwrap();
-
-    for level in 1..7 {
-        let colors = get_emf_colors(level, LED_ORDER);
-        led.set_colors(&colors).unwrap();
-
-        if level >= 2 {
-            let pcm_data = get_emf_pcm(level, SAMPLE_RATE, SAMPLE_DURATION_MS).unwrap();
-            speaker.play_pcm(&pcm_data, SAMPLE_RATE).unwrap();
+        if let Err(err) = result {
+            println!("Calibration aborted, error encountered: {:?}", err);
+            led.set_colors(&fill_colors(LEVEL_5_COLOR, 5, 5, LED_ORDER)).unwrap();
+            speaker.play_tune(&ERROR_TUNE_NOTES, SAMPLE_RATE).unwrap();
+            sleep(Duration::from_millis(1000));
+            // Retry calibration
+            continue;
         }
+
+        let (bias_x, bias_y, bias_z) = result.unwrap();
+        println!(
+            "Computed sensor bias: {:.2}, {:.2}, {:.2}",
+            bias_x, bias_y, bias_z
+        );
+
+        println!("Calibration complete");
+        break;
     }
 
+    // Success message
+    led.set_colors(&fill_colors(LEVEL_2_COLOR, 5, 5, LED_ORDER)).unwrap();
+    speaker.play_tune(&SUCCESS_TUNE_NOTES, SAMPLE_RATE).unwrap();
+
     led.turn_off().unwrap();
+
+    let mut emf = EMFReader::new(
+        Ghost::new(
+            None,
+            None,
+            7.5,
+            0.01
+        ),
+        User::new(),
+    1
+    );
+
+    // Pre-compute values
+    let SOUNDS = [
+        None,
+        Some(get_emf_pcm(2, SAMPLE_RATE, SAMPLE_DURATION_MS).unwrap()),
+        Some(get_emf_pcm(3, SAMPLE_RATE, SAMPLE_DURATION_MS).unwrap()),
+        Some(get_emf_pcm(4, SAMPLE_RATE, SAMPLE_DURATION_MS).unwrap()),
+        Some(get_emf_pcm(5, SAMPLE_RATE, SAMPLE_DURATION_MS).unwrap()),
+        Some(get_emf_pcm(6, SAMPLE_RATE, SAMPLE_DURATION_MS).unwrap())
+    ];
+
+    let COLORS = [
+        get_emf_colors(1, LED_ORDER),
+        get_emf_colors(2, LED_ORDER),
+        get_emf_colors(3, LED_ORDER),
+        get_emf_colors(4, LED_ORDER),
+        get_emf_colors(5, LED_ORDER),
+        get_emf_colors(6, LED_ORDER),
+    ];
+
+    emf.activity_level = 5;
+    let mut prev_level = 0;
+    let mut last_heartbeat = Instant::now();
+    let mut is_sleeping = false;
+    let mut last_orientation = Vector3::new(0.0, 0.0, 0.0);
+    let sleep_timeout = Duration::from_secs(30);
+    let wake_check_interval = Duration::from_secs(1);
+
+    loop {
+        let measurement = imu.data().unwrap();
+
+        emf.update_user(
+            None,
+            Some(Vector3::new(
+                measurement.pitch, 
+                measurement.roll, 
+                measurement.yaw
+            )),
+        );
+
+        let emf_level = emf.simulate_step();
+        let pcm_data = SOUNDS.get(emf_level as usize - 1);
+        let led_data = COLORS.get(emf_level as usize - 1);
+
+        if prev_level != emf_level && led_data.is_some() {
+            led.set_colors(led_data.unwrap()).unwrap();
+        }
+
+        if pcm_data.is_some() && pcm_data.as_ref().unwrap().is_some() {
+            let pcm_data = pcm_data.unwrap().as_ref().unwrap();
+            speaker.play_pcm(pcm_data, SAMPLE_RATE).unwrap();
+        }
+
+        let instant = Instant::now();
+        let duration= instant.duration_since(last_heartbeat);
+        if prev_level != emf_level || (emf_level == 1 && duration.as_secs() > 1) || (duration.as_secs() > 5) {
+            // Do stuff here
+            last_heartbeat = instant;
+        }
+
+        prev_level = emf_level;
+    }
 }
