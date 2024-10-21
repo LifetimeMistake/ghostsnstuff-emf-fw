@@ -31,6 +31,8 @@ pub struct AxisMapping {
 }
 
 const GRAVITY: f32 = 9.81;
+const CALIBRATION_ROT_THRESHOLD: f32 = 1.0;
+const CALIBRATION_ACCEL_THRESHOLD: f32 = GRAVITY / 2.0;
 
 fn get_mapped_axis(data: &Sensor3DDataScaled, mapping: &(Axis, bool)) -> f32 {
     let value = match mapping.0 {
@@ -226,6 +228,18 @@ where
 
         for _ in 0..samples {
             let m = self.read_data(false)?;
+            if m.raw_gyro.x.abs() > CALIBRATION_ROT_THRESHOLD || 
+                m.raw_gyro.y.abs() > CALIBRATION_ROT_THRESHOLD || 
+                m.raw_gyro.z.abs() > CALIBRATION_ROT_THRESHOLD {
+                return Err(Error::InvalidInputData); // Abort if rotation exceeds threshold
+            }
+
+            if m.raw_accel.x.abs() > CALIBRATION_ACCEL_THRESHOLD || 
+                m.raw_accel.y.abs() > CALIBRATION_ACCEL_THRESHOLD || 
+                m.raw_accel.z.abs() - GRAVITY > CALIBRATION_ACCEL_THRESHOLD {
+                return Err(Error::InvalidInputData); // Abort if rotation exceeds threshold
+            }
+
             accel_measurements.push(Vector3::new( 
                 m.raw_accel.x,
                 m.raw_accel.y,
