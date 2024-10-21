@@ -21,9 +21,9 @@ use esp_idf_hal::rmt::TxRmtDriver;
 
 use esp_idf_hal::units::FromValueType;
 use imu::{Axis, AxisMapping, IMU};
-use led::{fill_colors, get_emf_colors, LEDOrder, Ws2812, LEVEL_1_COLOR, LEVEL_2_COLOR, LEVEL_3_COLOR, LEVEL_5_COLOR};
+use led::{fill_colors, get_emf_colors, LEDOrder, Ws2812, LEVEL_1_COLOR, LEVEL_2_COLOR, LEVEL_3_COLOR, LEVEL_4_COLOR, LEVEL_5_COLOR};
 use speaker::{get_emf_pcm, PWMSpeaker};
-use utils::{ledc_resolution_to_u32, ERROR_TUNE_NOTES, SUCCESS_TUNE_NOTES};
+use utils::{ledc_resolution_to_u32, vectors_almost_equal, ERROR_TUNE_NOTES, SLEEP_TUNE_NOTES, SUCCESS_TUNE_NOTES, WAKEUP_TUNE_NOTES};
 use vector::Vector3;
 
 fn main() {
@@ -162,24 +162,44 @@ fn main() {
         get_emf_colors(6, LED_ORDER),
     ];
 
-    emf.activity_level = 5;
+    emf.activity_level = 4;
     let mut prev_level = 0;
     let mut last_heartbeat = Instant::now();
+    let mut last_orientation_change = Instant::now();
     let mut is_sleeping = false;
     let mut last_orientation = Vector3::new(0.0, 0.0, 0.0);
     let sleep_timeout = Duration::from_secs(30);
     let wake_check_interval = Duration::from_secs(1);
 
     loop {
+        let now = Instant::now();
         let measurement = imu.data().unwrap();
+        let orientation = Vector3::new(
+            measurement.pitch, 
+            measurement.roll, 
+            measurement.yaw
+        );
+
+        if is_sleeping {
+            if vectors_almost_equal(&last_orientation, &orientation) {
+                // Compensate for drift
+                last_orientation = orientation;
+                sleep(wake_check_interval);
+                continue;
+            }
+
+            // Wake up device
+            println!("Waking up");
+            led.set_colors(&fill_colors(LEVEL_1_COLOR, 5, 5, LED_ORDER)).unwrap();
+            speaker.play_tune(&WAKEUP_TUNE_NOTES, SAMPLE_RATE).unwrap();
+            last_orientation_change = now;
+            is_sleeping = false;
+            prev_level = 0;
+        }
 
         emf.update_user(
             None,
-            Some(Vector3::new(
-                measurement.pitch, 
-                measurement.roll, 
-                measurement.yaw
-            )),
+            Some(orientation),
         );
 
         let emf_level = emf.simulate_step();
@@ -195,11 +215,30 @@ fn main() {
             speaker.play_pcm(pcm_data, SAMPLE_RATE).unwrap();
         }
 
-        let instant = Instant::now();
-        let duration= instant.duration_since(last_heartbeat);
+        let duration= now.duration_since(last_heartbeat);
         if prev_level != emf_level || (emf_level == 1 && duration.as_secs() > 1) || (duration.as_secs() > 5) {
-            // Do stuff here
-            last_heartbeat = instant;
+            let current_orientation = Vector3::new(
+                measurement.pitch, 
+                measurement.roll, 
+                measurement.yaw
+            );
+
+            if vectors_almost_equal(&last_orientation, &current_orientation) {
+                let idle_duration = now.duration_since(last_orientation_change);
+                if idle_duration > sleep_timeout {
+                    // Sleep device
+                    println!("Entering sleep");
+                    led.set_colors(&fill_colors(LEVEL_1_COLOR, 5, 5, LED_ORDER)).unwrap();
+                    speaker.play_tune(&SLEEP_TUNE_NOTES, SAMPLE_RATE).unwrap();
+                    led.turn_off().unwrap();
+                    is_sleeping = true;
+                }
+            } else {
+                last_orientation = orientation;
+                last_orientation_change = now;
+            }
+
+            last_heartbeat = now;
         }
 
         prev_level = emf_level;

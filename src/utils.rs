@@ -23,6 +23,20 @@ pub const ERROR_TUNE_NOTES: [(u32, u32); 3] = [
     (196, 500),  // G3 note for 500ms
 ];
 
+pub const SLEEP_TUNE_NOTES: [(u32, u32); 4] = [
+    (440, 200),  // A4 note for 200ms
+    (392, 200),  // G4 note for 200ms
+    (349, 200),  // F4 note for 200ms
+    (330, 300),  // E4 note for 300ms
+];
+
+pub const WAKEUP_TUNE_NOTES: [(u32, u32); 4] = [
+    (330, 200),  // E4 note for 200ms
+    (349, 200),  // F4 note for 200ms
+    (392, 200),  // G4 note for 200ms
+    (440, 300),  // A4 note for 300ms
+];
+
 pub fn vectors_almost_equal(last: &Vector3, current: &Vector3) -> bool {
     let threshold = 0.05; // Define a small threshold to filter out noise
     (last.x - current.x).abs() < threshold &&
