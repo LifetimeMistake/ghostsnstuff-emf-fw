@@ -150,17 +150,7 @@ impl EMFReader {
         };
 
         // Calculate raw EMF level
-        let emf_raw = (base_emf * activity_multiplier * 6.0).clamp(1.0, self.activity_level as f32 + 1.0);
-    
-        // Print debug information
-        // println!(
-        //     "al: {}, af: {}, df: {}, emf_r: {}, emf: {}", 
-        //     self.activity_level, 
-        //     angle_factor, 
-        //     distance_factor, 
-        //     emf_raw,
-        //     round_emf_level(emf_raw).clamp(1.0, 5.0)
-        // );
+        let emf_raw = (base_emf * activity_multiplier * 6.0).clamp(self.activity_level as f32 - 1.0, self.activity_level as f32 + 1.0);
     
         // Determine final EMF level based on activity level
         let emf_level = if self.activity_level == 6 {

@@ -137,7 +137,7 @@ fn main() {
             None,
             None,
             7.5,
-            0.01
+            0.02
         ),
         User::new(),
     1
