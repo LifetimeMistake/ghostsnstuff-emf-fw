@@ -94,6 +94,18 @@ where
         self.play_pcm(&pcm_data, sample_rate)
     }
 
+    pub fn play_tune(
+        &mut self,
+        notes: &[(u32, u32)],
+        sample_rate: u32
+    ) -> Result<(), EspError> {
+        for &(frequency, duration) in notes.iter() {
+            self.play_frequency(frequency, sample_rate, duration)?;
+        }
+
+        Ok(())
+    }
+
     pub fn turn_off(&mut self) -> Result<(), EspError> {
         self.driver.set_duty(0)
     }
