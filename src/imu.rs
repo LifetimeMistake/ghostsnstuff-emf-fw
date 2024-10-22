@@ -166,10 +166,16 @@ where
             gyro.z * (PI / 180.0),
         );
 
+        let bias = if apply_bias {
+            rotate_vector(&self.accel_bias, self.orientation.x, self.orientation.y, self.orientation.z)
+        } else {
+            Vector3::new(0.0, 0.0, 0.0)
+        };
+
         let accel_scaled = Vector3::new(
-            accel.x * GRAVITY,
-            accel.y * GRAVITY,
-            accel.z * GRAVITY,
+            accel.x * GRAVITY - bias.x,
+            accel.y * GRAVITY - bias.y,
+            accel.z * GRAVITY - bias.z,
         );
 
         // Calculate pitch and roll from accelerometer
@@ -189,17 +195,11 @@ where
             GRAVITY * (self.orientation.y.cos() * self.orientation.x.cos()),
         );
 
-        let bias = if apply_bias {
-            rotate_vector(&self.accel_bias, self.orientation.x, self.orientation.y, self.orientation.z)
-        } else {
-            Vector3::new(0.0, 0.0, 0.0)
-        };
-
         // Apply gravity compensation to accelerometer readings
         let acceleration = Vector3::new(
-            (accel_scaled.x - gravity_comp.x - bias.x) * dt,
-            (accel_scaled.y - gravity_comp.y - bias.y) * dt,
-            (accel_scaled.z - gravity_comp.z - bias.z) * dt,
+            (accel_scaled.x - gravity_comp.x) * dt,
+            (accel_scaled.y - gravity_comp.y) * dt,
+            (accel_scaled.z - gravity_comp.z) * dt,
         );
 
         let result = IMUMeasurement {
@@ -272,6 +272,9 @@ where
         );
 
         self.accel_bias = rotate_vector(&accel_bias, -avg_gyro.x, -avg_gyro.y, -avg_gyro.z);
+        self.orientation.x = 0.0;
+        self.orientation.y = 0.0;
+        self.orientation.z = 0.0;
         self.is_calibrated = true;
         Ok((self.accel_bias.x, self.accel_bias.y, self.accel_bias.z))
     }
