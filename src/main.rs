@@ -56,6 +56,8 @@ fn main() {
     };
     let IMU_ALPHA: f32 = 0.9;
     let IMU_CALIBRATION_SAMPLES: u32 = 1000;
+    let SLEEP_TIMEOUT = Duration::from_secs(10);
+    let WAKE_CHECK_INTERVAL = Duration::from_secs(1);
 
     // Speaker init code
     let mut speaker_timer = LedcTimerDriver::new(
@@ -168,8 +170,6 @@ fn main() {
     let mut last_orientation_change = Instant::now();
     let mut is_sleeping = false;
     let mut last_orientation = Vector3::new(0.0, 0.0, 0.0);
-    let sleep_timeout = Duration::from_secs(30);
-    let wake_check_interval = Duration::from_secs(1);
 
     loop {
         let now = Instant::now();
@@ -181,10 +181,11 @@ fn main() {
         );
 
         if is_sleeping {
-            if vectors_almost_equal(&last_orientation, &orientation) {
+            if vectors_almost_equal(&last_orientation, &orientation) ||
+            now.duration_since(last_heartbeat) < Duration::from_secs(2) {
                 // Compensate for drift
                 last_orientation = orientation;
-                sleep(wake_check_interval);
+                sleep(WAKE_CHECK_INTERVAL);
                 continue;
             }
 
@@ -225,7 +226,7 @@ fn main() {
 
             if vectors_almost_equal(&last_orientation, &current_orientation) {
                 let idle_duration = now.duration_since(last_orientation_change);
-                if idle_duration > sleep_timeout {
+                if idle_duration > SLEEP_TIMEOUT {
                     // Sleep device
                     println!("Entering sleep");
                     led.set_colors(&fill_colors(LEVEL_1_COLOR, 5, 5, LED_ORDER)).unwrap();

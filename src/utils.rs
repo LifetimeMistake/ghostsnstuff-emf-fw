@@ -38,7 +38,7 @@ pub const WAKEUP_TUNE_NOTES: [(u32, u32); 4] = [
 ];
 
 pub fn vectors_almost_equal(last: &Vector3, current: &Vector3) -> bool {
-    let threshold = 0.05; // Define a small threshold to filter out noise
+    let threshold = 0.1; // Define a small threshold to filter out noise
     (last.x - current.x).abs() < threshold &&
     (last.y - current.y).abs() < threshold &&
     (last.z - current.z).abs() < threshold
