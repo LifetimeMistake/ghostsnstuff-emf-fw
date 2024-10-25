@@ -29,10 +29,14 @@ embassy = ["esp-idf-svc/embassy-sync", "esp-idf-svc/critical-section", "esp-idf-
 
 [dependencies]
 log = { version = "0.4", default-features = false }
-esp-idf-svc = { version = "0.49", default-features = false }
+esp-idf-svc = { version = "0.49", default-features = false, features = ["alloc", "experimental"] }
 esp-idf-hal = "0.44.1"
 bmi160 = "1.1.0"
 rand = "0.8.5"
+enumset = "1.1.5"
+heapless = "0.8.0"
+anyhow = "1.0.91"
+queues = "1.1.0"
 
 [build-dependencies]
 embuild = "0.32.0"

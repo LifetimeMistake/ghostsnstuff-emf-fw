@@ -7,13 +7,16 @@ pub mod imu;
 pub mod led;
 pub mod emf;
 pub mod speaker;
+pub mod bt;
 
 use std::fmt::Debug;
+use std::sync::Arc;
 use std::thread::sleep;
 use std::time::{Duration, Instant};
 
 use bmi160::interface::{ReadData, WriteData};
 use bmi160::{AccelerometerRange, Bmi160, Error, GyroscopeRange, SlaveAddr};
+use bt::BtServer;
 use emf::{EMFReader, Ghost, User};
 use esp_idf_hal::i2c::{I2cConfig, I2cDriver};
 use esp_idf_hal::ledc::{LedcTimer, Resolution};
@@ -23,6 +26,10 @@ use esp_idf_hal::rmt::config::TransmitConfig;
 use esp_idf_hal::rmt::TxRmtDriver;
 
 use esp_idf_hal::units::FromValueType;
+use esp_idf_svc::bt::ble::gap::EspBleGap;
+use esp_idf_svc::bt::ble::gatt::server::EspGatts;
+use esp_idf_svc::bt::BtDriver;
+use esp_idf_svc::nvs::EspDefaultNvsPartition;
 use imu::{Axis, AxisMapping, IMU};
 use led::{fill_colors, get_emf_colors, LEDOrder, Ws2812, LEVEL_1_COLOR, LEVEL_2_COLOR, LEVEL_3_COLOR, LEVEL_4_COLOR, LEVEL_5_COLOR};
 use speaker::{get_emf_pcm, PWMSpeaker};
@@ -33,7 +40,7 @@ use vector::Vector3;
 const SPEAKER_RESOLUTION: Resolution = Resolution::Bits8;
 const LED_ORDER: LEDOrder = LEDOrder::Reverse;
 const SAMPLE_RATE: u32 = 8000;
-const SAMPLE_DURATION_MS: u32 = 10;
+const SAMPLE_DURATION_MS: u32 = 20;
 const IMU_I2C_BAUDRATE_KHZ: u32 = 100;
 const IMU_ACCEL_RANGE: AccelerometerRange = AccelerometerRange::G4;
 const IMU_ACCEL_MAP: AxisMapping = AxisMapping {
@@ -50,7 +57,7 @@ const IMU_GYRO_MAP: AxisMapping = AxisMapping {
 const IMU_ALPHA: f32 = 0.9;
 const IMU_CALIBRATION_SAMPLES: u32 = 1000;
 const IMU_CALIBRATION_INTERVAL: Duration = Duration::from_secs(600);
-const SLEEP_TIMEOUT: Duration = Duration::from_secs(10);
+const SLEEP_TIMEOUT: Duration = Duration::from_secs(30);
 const WAKE_CHECK_INTERVAL: Duration = Duration::from_secs(1);
 
 fn calibrate<T, W, E>(led: &mut Ws2812, speaker: &mut PWMSpeaker<T>, imu: &mut IMU<W, E>)
@@ -145,6 +152,21 @@ fn main() {
         Some(IMU_GYRO_MAP), 
         Some(IMU_ALPHA)
     );
+
+    // Bluetooth init code
+    let nvs = EspDefaultNvsPartition::take().unwrap();
+    let bt_driver = Arc::new(
+        BtDriver::new(peripherals.modem, 
+        Some(nvs.clone())
+    ).unwrap());
+
+    let mut bt_server = BtServer::new(
+        Arc::new(EspBleGap::new(bt_driver.clone()).unwrap()),
+        Arc::new(EspGatts::new(bt_driver.clone()).unwrap())
+    );
+
+    bt_server.init().unwrap();
+    println!("BT init complete");
 
     let mut emf = EMFReader::new(
         Ghost::new(
@@ -248,7 +270,7 @@ fn main() {
         }
 
         let duration= now.duration_since(last_heartbeat);
-        if prev_level != emf_level || (emf_level == 1 && duration.as_secs() > 1) || (duration.as_secs() > 5) {
+        if prev_level != emf_level || (emf_level == 1 && duration.as_millis() > 100) || (duration.as_secs() >= 1) {
             let current_orientation = Vector3::new(
                 measurement.pitch, 
                 measurement.roll, 
@@ -268,6 +290,16 @@ fn main() {
             } else {
                 last_orientation = orientation;
                 last_orientation_change = now;
+            }
+
+            // Check bluetooth messages
+            loop {
+                let bt_message = bt_server.get_message();
+                if bt_message.is_none() {
+                    break;
+                }
+
+                println!("consumed: {:?}", bt_message.unwrap().data);
             }
 
             last_heartbeat = now;
