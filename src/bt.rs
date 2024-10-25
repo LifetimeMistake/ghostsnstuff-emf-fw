@@ -1,3 +1,6 @@
+use std::borrow::BorrowMut;
+use std::cell::RefCell;
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
 use enumset::enum_set;
 use esp_idf_hal::delay::FreeRtos;
@@ -13,7 +16,7 @@ use queues::{IsQueue, Queue};
 use log::{info, warn};
 
 const APP_ID: u16 = 0;
-const MAX_CONNECTIONS: usize = 2;
+const MAX_CONNECTIONS: usize = 32;
 
 // UUIDs for the service and characteristics
 pub const SERVICE_UUID: u128 = 0xad91b201734740479e173bed82d75f9d;
@@ -57,7 +60,8 @@ pub struct BtServer {
     gatts: ExEspGatts,
     state: Arc<Mutex<State>>,
     condvar: Arc<Condvar>,
-    messages: Arc<Mutex<Queue<BtMessage>>>
+    messages: Arc<Mutex<Queue<BtMessage>>>,
+    connections: Arc<AtomicU32>,
 }
 
 impl BtServer {
@@ -67,7 +71,8 @@ impl BtServer {
             gatts,
             state: Arc::new(Mutex::new(Default::default())),
             condvar: Arc::new(Condvar::new()),
-            messages: Arc::new(Mutex::new(Queue::new()))
+            messages: Arc::new(Mutex::new(Queue::new())),
+            connections: Arc::new(AtomicU32::new(0))
         }
     }
 
@@ -99,6 +104,10 @@ impl BtServer {
         }
 
         return queue.unwrap().remove().ok();
+    }
+
+    pub fn has_connections(&self) -> bool {
+        return self.connections.load(Ordering::SeqCst) > 0;
     }
 
     fn on_gap_event(&self, event: BleGapEvent) -> Result<(), EspError> {
@@ -162,7 +171,23 @@ impl BtServer {
                         gatt_if, conn_id, trans_id, handle, offset, need_rsp, is_prep, value,
                     )?;
                 }
-            }
+            },
+            GattsEvent::PeerConnected {
+                addr,
+                ..
+            } => {
+                info!("Peer connected: {}", addr);
+                self.connections.fetch_add(1, Ordering::SeqCst);
+            },
+            GattsEvent::PeerDisconnected { 
+                addr, 
+                reason,
+                ..
+            } => {
+                info!("Peer disconnected: {}, reason: {:?}", addr, reason);
+                self.connections.fetch_sub(1, Ordering::SeqCst);
+                self.connections.fetch_max(0, Ordering::SeqCst);
+            },
             _ => (),
         }
 

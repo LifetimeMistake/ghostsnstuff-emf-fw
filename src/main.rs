@@ -60,7 +60,7 @@ const IMU_GYRO_MAP: AxisMapping = AxisMapping {
 const IMU_ALPHA: f32 = 0.9;
 const IMU_CALIBRATION_SAMPLES: u32 = 1000;
 const IMU_CALIBRATION_INTERVAL: Duration = Duration::from_secs(600);
-const SLEEP_TIMEOUT: Duration = Duration::from_secs(30);
+const SLEEP_TIMEOUT: Duration = Duration::from_secs(10);
 const WAKE_CHECK_INTERVAL: Duration = Duration::from_secs(1);
 
 const COMMAND_RESET: u8 = 0x00;
@@ -302,11 +302,11 @@ fn main() {
                 wakeup_requested = true;
             }
 
-            FreeRtos::delay_ms(1000);
+            FreeRtos::delay_ms(WAKE_CHECK_INTERVAL.as_secs() as u32);
         }
 
         if is_deep_sleeping {
-            FreeRtos::delay_ms(1000);
+            FreeRtos::delay_ms(WAKE_CHECK_INTERVAL.as_secs() as u32);
             continue;
         }
 
@@ -381,21 +381,23 @@ fn main() {
                 measurement.yaw
             );
 
-            if vectors_almost_equal(&last_orientation, &current_orientation) || sleep_requested {
-                let idle_duration = now.duration_since(last_orientation_change);
-                if idle_duration > SLEEP_TIMEOUT || sleep_requested {
-                    // Sleep device
-                    println!("Entering sleep");
-                    led.set_colors(&fill_colors(LEVEL_1_COLOR, 5, 5, LED_ORDER)).unwrap();
-                    speaker.play_tune(&SLEEP_TUNE_NOTES, SAMPLE_RATE).unwrap();
-                    led.turn_off().unwrap();
-                    is_sleeping = true;
-                    sleep_requested = false;
+            if !is_sleeping {
+                if (vectors_almost_equal(&last_orientation, &current_orientation) && !bt_server.has_connections()) || sleep_requested {
+                    let idle_duration = now.duration_since(last_orientation_change);
+                    if idle_duration > SLEEP_TIMEOUT || sleep_requested {
+                        // Sleep device
+                        println!("Entering sleep");
+                        led.set_colors(&fill_colors(LEVEL_1_COLOR, 5, 5, LED_ORDER)).unwrap();
+                        speaker.play_tune(&SLEEP_TUNE_NOTES, SAMPLE_RATE).unwrap();
+                        led.turn_off().unwrap();
+                        is_sleeping = true;
+                        sleep_requested = false;
+                    }
+                } else {
+                    last_orientation = orientation;
+                    last_orientation_change = now;
                 }
             }
-
-            last_orientation = orientation;
-            last_orientation_change = now;
 
             // Check bluetooth messages
             loop {
