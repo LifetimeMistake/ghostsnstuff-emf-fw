@@ -19,6 +19,7 @@ use bmi160::{AccelerometerRange, Bmi160, Error, GyroscopeRange, SlaveAddr};
 use bt::BtServer;
 use emf::{EMFReader, Ghost, User};
 use esp_idf_hal::delay::FreeRtos;
+use esp_idf_hal::gpio::{PinDriver, Pull};
 use esp_idf_hal::i2c::{I2cConfig, I2cDriver};
 use esp_idf_hal::ledc::{LedcTimer, Resolution};
 use esp_idf_hal::ledc::{config::TimerConfig, LedcDriver, LedcTimerDriver};
@@ -154,7 +155,7 @@ where T : LedcTimer
     }
 
     if current_level == 0 {
-        led.turn_off();
+        led.turn_off().unwrap();
     } else {
         let revert_led_data = colors.get(current_level as usize - 1);
         if let Some(led_colors) = revert_led_data {
@@ -174,6 +175,10 @@ fn main() {
     let IMU_I2C_DEVICE = peripherals.i2c0;
     let IMU_I2C_SDA_PIN = peripherals.pins.gpio6;
     let IMU_I2C_SCL_PIN = peripherals.pins.gpio7;
+    let POWER_BUTTON = peripherals.pins.gpio9;
+
+    let mut power_button = PinDriver::input(POWER_BUTTON).unwrap();
+    power_button.set_pull(Pull::Down).unwrap();
 
     // Speaker init code
     let mut speaker_timer = LedcTimerDriver::new(
@@ -276,11 +281,35 @@ fn main() {
     let mut last_orientation_change = Instant::now();
     let mut last_calibration = Instant::now();
     let mut is_sleeping = false;
+    let mut is_deep_sleeping = false;
     let mut last_orientation = Vector3::new(0.0, 0.0, 0.0);
     let mut wakeup_requested = false;
     let mut sleep_requested = false;
 
     loop {
+        if power_button.is_low() {
+            if !is_deep_sleeping {
+                // Sleep device
+                println!("Entering deep sleep");
+                led.set_colors(&fill_colors(LEVEL_4_COLOR, 5, 5, LED_ORDER)).unwrap();
+                speaker.play_tune(&SLEEP_TUNE_NOTES, SAMPLE_RATE).unwrap();
+                led.turn_off().unwrap();
+                is_deep_sleeping = true;
+                is_sleeping = true;
+            } else {
+                println!("Waking from deep sleep");
+                is_deep_sleeping = false;
+                wakeup_requested = true;
+            }
+
+            FreeRtos::delay_ms(1000);
+        }
+
+        if is_deep_sleeping {
+            FreeRtos::delay_ms(1000);
+            continue;
+        }
+
         let now = Instant::now();
         let measurement = imu.data().unwrap();
         let orientation = Vector3::new(
@@ -290,7 +319,6 @@ fn main() {
         );
 
         if is_sleeping {
-            let last_heartbeat_elapsed = now.duration_since(last_heartbeat);
             if wakeup_requested || !vectors_almost_equal(&last_orientation, &orientation) {   
                 // Wake up device
                 println!("Waking up");
