@@ -60,6 +60,11 @@ const IMU_CALIBRATION_INTERVAL: Duration = Duration::from_secs(600);
 const SLEEP_TIMEOUT: Duration = Duration::from_secs(30);
 const WAKE_CHECK_INTERVAL: Duration = Duration::from_secs(1);
 
+const COMMAND_RESET: u8 = 0x00;
+const COMMAND_SLEEP: u8 = 0x01;
+const COMMAND_SET_ACTIVITY: u8 = 0x02;
+const COMMAND_GLITCH: u8 = 0x03;
+
 fn calibrate<T, W, E>(led: &mut Ws2812, speaker: &mut PWMSpeaker<T>, imu: &mut IMU<W, E>)
 where T : LedcTimer,
 W: ReadData<Error = Error<E>> + WriteData<Error = Error<E>>,
@@ -205,13 +210,14 @@ fn main() {
         &mut imu
     );
 
-    emf.activity_level = 4;
     let mut prev_level = 0;
     let mut last_heartbeat = Instant::now();
     let mut last_orientation_change = Instant::now();
     let mut last_calibration = Instant::now();
     let mut is_sleeping = false;
     let mut last_orientation = Vector3::new(0.0, 0.0, 0.0);
+    let mut wakeup_requested = false;
+    let mut sleep_requested = false;
 
     loop {
         let now = Instant::now();
@@ -223,8 +229,8 @@ fn main() {
         );
 
         if is_sleeping {
-            if vectors_almost_equal(&last_orientation, &orientation) ||
-            now.duration_since(last_heartbeat) < Duration::from_secs(2) {
+            if !wakeup_requested && (vectors_almost_equal(&last_orientation, &orientation) ||
+            now.duration_since(last_heartbeat) < Duration::from_secs(2)) {
                 // Compensate for drift
                 last_orientation = orientation;
                 sleep(WAKE_CHECK_INTERVAL);
@@ -238,6 +244,8 @@ fn main() {
             last_orientation_change = now;
             is_sleeping = false;
             prev_level = 0;
+            sleep_requested = false;
+            wakeup_requested = false;
 
             if now.duration_since(last_calibration) > IMU_CALIBRATION_INTERVAL {
                 // Prompt for re-calibration
@@ -277,9 +285,9 @@ fn main() {
                 measurement.yaw
             );
 
-            if vectors_almost_equal(&last_orientation, &current_orientation) {
+            if vectors_almost_equal(&last_orientation, &current_orientation) || sleep_requested {
                 let idle_duration = now.duration_since(last_orientation_change);
-                if idle_duration > SLEEP_TIMEOUT {
+                if idle_duration > SLEEP_TIMEOUT || sleep_requested {
                     // Sleep device
                     println!("Entering sleep");
                     led.set_colors(&fill_colors(LEVEL_1_COLOR, 5, 5, LED_ORDER)).unwrap();
@@ -298,8 +306,27 @@ fn main() {
                 if bt_message.is_none() {
                     break;
                 }
-
-                println!("consumed: {:?}", bt_message.unwrap().data);
+            
+                let data = bt_message.unwrap().data;
+                let command = data[0];
+                match command {
+                    COMMAND_RESET => {
+                        prev_level = 0;
+                        emf.activity_level = 1;
+                        wakeup_requested = true;
+                    },
+                    COMMAND_SLEEP => {
+                        sleep_requested = true;
+                    },
+                    COMMAND_SET_ACTIVITY => {
+                        emf.activity_level = data[1];
+                        // Handle activity 0 later
+                    },
+                    COMMAND_GLITCH => {
+                        println!("Glitch command received");
+                    }
+                    e => println!("Unknown command received: {}", e)
+                }
             }
 
             last_heartbeat = now;
