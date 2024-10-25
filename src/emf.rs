@@ -112,6 +112,10 @@ impl EMFReader {
 
     // Calculate EMF level based on user orientation, ghost position, and ghost activity
     fn calculate_emf_level(&self) -> u8 {
+        if (self.activity_level == 0) {
+            return 0;
+        }
+        
         let user_orientation = &self.user.orientation; // Yaw (Z axis) represents facing direction
         let yaw = user_orientation.z; // Ensure yaw is in radians
     

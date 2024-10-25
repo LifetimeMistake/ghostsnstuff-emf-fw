@@ -259,30 +259,34 @@ fn main() {
             FreeRtos::delay_ms(WAKE_CHECK_INTERVAL.as_secs() as u32);
         }
 
+        emf.update_user(
+            None,
+            Some(orientation),
+        );
+        let emf_level = emf.simulate_step();
+
         if !is_sleeping {
-            emf.update_user(
-                None,
-                Some(orientation),
-            );
+            if emf_level == 0 {
+                if prev_level != emf_level {
+                    led.turn_off();
+                }
+            } else {
+                let pcm_data = SOUNDS.get(emf_level as usize - 1);
+                let led_data = COLORS.get(emf_level as usize - 1);
     
-            let emf_level = emf.simulate_step();
-            let pcm_data = SOUNDS.get(emf_level as usize - 1);
-            let led_data = COLORS.get(emf_level as usize - 1);
-    
-            if prev_level != emf_level && led_data.is_some() {
-                led.set_colors(led_data.unwrap()).unwrap();
-            }
-    
-            if pcm_data.is_some() && pcm_data.as_ref().unwrap().is_some() {
-                let pcm_data = pcm_data.unwrap().as_ref().unwrap();
-                speaker.play_pcm(pcm_data, SAMPLE_RATE).unwrap();
+                if prev_level != emf_level && led_data.is_some() {
+                    led.set_colors(led_data.unwrap()).unwrap();
+                }
+        
+                if pcm_data.is_some() && pcm_data.as_ref().unwrap().is_some() {
+                    let pcm_data = pcm_data.unwrap().as_ref().unwrap();
+                    speaker.play_pcm(pcm_data, SAMPLE_RATE).unwrap();
+                }
             }
         }
 
-        let emf_level = emf.activity_level;
-
         let duration= now.duration_since(last_heartbeat);
-        if prev_level != emf_level || (emf_level == 1 && duration.as_millis() > 100) || (duration.as_secs() >= 1) {
+        if prev_level != emf_level || (emf_level < 2 && duration.as_millis() > 100) || (duration.as_secs() >= 1) {
             let current_orientation = Vector3::new(
                 measurement.pitch, 
                 measurement.roll, 
@@ -328,7 +332,6 @@ fn main() {
                         emf.activity_level = data[1];
                         println!("Activity command received",);
                         println!("Activity now at {}", emf.activity_level);
-                        // Handle activity 0 later
                     },
                     COMMAND_GLITCH => {
                         println!("Glitch command received");
@@ -340,6 +343,8 @@ fn main() {
             last_heartbeat = now;
         }
 
-        prev_level = emf_level;
+        if !is_sleeping {
+            prev_level = emf_level;
+        }
     }
 }
