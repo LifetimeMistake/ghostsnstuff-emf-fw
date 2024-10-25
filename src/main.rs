@@ -18,6 +18,7 @@ use bmi160::interface::{ReadData, WriteData};
 use bmi160::{AccelerometerRange, Bmi160, Error, GyroscopeRange, SlaveAddr};
 use bt::BtServer;
 use emf::{EMFReader, Ghost, User};
+use esp_idf_hal::delay::FreeRtos;
 use esp_idf_hal::i2c::{I2cConfig, I2cDriver};
 use esp_idf_hal::ledc::{LedcTimer, Resolution};
 use esp_idf_hal::ledc::{config::TimerConfig, LedcDriver, LedcTimerDriver};
@@ -229,53 +230,56 @@ fn main() {
         );
 
         if is_sleeping {
-            if !wakeup_requested && (vectors_almost_equal(&last_orientation, &orientation) ||
-            now.duration_since(last_heartbeat) < Duration::from_secs(2)) {
-                // Compensate for drift
-                last_orientation = orientation;
-                sleep(WAKE_CHECK_INTERVAL);
-                continue;
+            let last_heartbeat_elapsed = now.duration_since(last_heartbeat);
+            if wakeup_requested || !vectors_almost_equal(&last_orientation, &orientation) {   
+                // Wake up device
+                println!("Waking up");
+                led.set_colors(&fill_colors(LEVEL_1_COLOR, 5, 5, LED_ORDER)).unwrap();
+                speaker.play_tune(&WAKEUP_TUNE_NOTES, SAMPLE_RATE).unwrap();
+                last_orientation_change = now;
+                is_sleeping = false;
+                prev_level = 0;
+                sleep_requested = false;
+                wakeup_requested = false;
+
+                if now.duration_since(last_calibration) > IMU_CALIBRATION_INTERVAL {
+                    // Prompt for re-calibration
+                    calibrate(
+                        &mut led,
+                        &mut speaker,
+                        &mut imu
+                    );
+
+                    last_calibration = now;
+                }
             }
+            
+            // Compensate for drift
+            last_orientation = orientation;
+            FreeRtos::delay_ms(WAKE_CHECK_INTERVAL.as_secs() as u32);
+        }
 
-            // Wake up device
-            println!("Waking up");
-            led.set_colors(&fill_colors(LEVEL_1_COLOR, 5, 5, LED_ORDER)).unwrap();
-            speaker.play_tune(&WAKEUP_TUNE_NOTES, SAMPLE_RATE).unwrap();
-            last_orientation_change = now;
-            is_sleeping = false;
-            prev_level = 0;
-            sleep_requested = false;
-            wakeup_requested = false;
-
-            if now.duration_since(last_calibration) > IMU_CALIBRATION_INTERVAL {
-                // Prompt for re-calibration
-                calibrate(
-                    &mut led,
-                    &mut speaker,
-                    &mut imu
-                );
-
-                last_calibration = now;
+        if !is_sleeping {
+            emf.update_user(
+                None,
+                Some(orientation),
+            );
+    
+            let emf_level = emf.simulate_step();
+            let pcm_data = SOUNDS.get(emf_level as usize - 1);
+            let led_data = COLORS.get(emf_level as usize - 1);
+    
+            if prev_level != emf_level && led_data.is_some() {
+                led.set_colors(led_data.unwrap()).unwrap();
+            }
+    
+            if pcm_data.is_some() && pcm_data.as_ref().unwrap().is_some() {
+                let pcm_data = pcm_data.unwrap().as_ref().unwrap();
+                speaker.play_pcm(pcm_data, SAMPLE_RATE).unwrap();
             }
         }
 
-        emf.update_user(
-            None,
-            Some(orientation),
-        );
-
-        let emf_level = emf.simulate_step();
-        let pcm_data = SOUNDS.get(emf_level as usize - 1);
-        let led_data = COLORS.get(emf_level as usize - 1);
-
-        if prev_level != emf_level && led_data.is_some() {
-            led.set_colors(led_data.unwrap()).unwrap();
-        }
-
-        if pcm_data.is_some() && pcm_data.as_ref().unwrap().is_some() {
-            let pcm_data = pcm_data.unwrap().as_ref().unwrap();
-            speaker.play_pcm(pcm_data, SAMPLE_RATE).unwrap();
-        }
+        let emf_level = emf.activity_level;
 
         let duration= now.duration_since(last_heartbeat);
         if prev_level != emf_level || (emf_level == 1 && duration.as_millis() > 100) || (duration.as_secs() >= 1) {
@@ -294,11 +298,12 @@ fn main() {
                     speaker.play_tune(&SLEEP_TUNE_NOTES, SAMPLE_RATE).unwrap();
                     led.turn_off().unwrap();
                     is_sleeping = true;
+                    sleep_requested = false;
                 }
-            } else {
-                last_orientation = orientation;
-                last_orientation_change = now;
             }
+
+            last_orientation = orientation;
+            last_orientation_change = now;
 
             // Check bluetooth messages
             loop {
@@ -311,15 +316,18 @@ fn main() {
                 let command = data[0];
                 match command {
                     COMMAND_RESET => {
-                        prev_level = 0;
+                        println!("Reset command received");
                         emf.activity_level = 1;
                         wakeup_requested = true;
                     },
                     COMMAND_SLEEP => {
+                        println!("Sleep command received");
                         sleep_requested = true;
                     },
                     COMMAND_SET_ACTIVITY => {
                         emf.activity_level = data[1];
+                        println!("Activity command received",);
+                        println!("Activity now at {}", emf.activity_level);
                         // Handle activity 0 later
                     },
                     COMMAND_GLITCH => {
