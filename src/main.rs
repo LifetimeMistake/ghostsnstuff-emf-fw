@@ -32,7 +32,8 @@ use esp_idf_svc::bt::ble::gatt::server::EspGatts;
 use esp_idf_svc::bt::BtDriver;
 use esp_idf_svc::nvs::EspDefaultNvsPartition;
 use imu::{Axis, AxisMapping, IMU};
-use led::{fill_colors, get_emf_colors, LEDOrder, Ws2812, LEVEL_1_COLOR, LEVEL_2_COLOR, LEVEL_3_COLOR, LEVEL_4_COLOR, LEVEL_5_COLOR};
+use led::{fill_colors, get_emf_colors, LEDOrder, Rgb, Ws2812, LEVEL_1_COLOR, LEVEL_2_COLOR, LEVEL_3_COLOR, LEVEL_4_COLOR, LEVEL_5_COLOR};
+use rand::Rng;
 use speaker::{get_emf_pcm, PWMSpeaker};
 use utils::{ledc_resolution_to_u32, vectors_almost_equal, ERROR_TUNE_NOTES, SLEEP_TUNE_NOTES, SUCCESS_TUNE_NOTES, WAKEUP_TUNE_NOTES};
 use vector::Vector3;
@@ -101,6 +102,65 @@ E: Debug
     speaker.play_tune(&SUCCESS_TUNE_NOTES, SAMPLE_RATE).unwrap();
 
     led.turn_off().unwrap();
+}
+
+fn glitch<T>(colors: &[[Rgb; 5]; 6], sounds: &[Option<Vec<u8>>; 6], led: &mut Ws2812, speaker: &mut PWMSpeaker<T>, current_level: u8) 
+where T : LedcTimer 
+{
+    // Helper function to simulate glitchy emf readings
+    fn simulate_glitchy_step(level: u8, max_jump: u8) -> u8 {
+        let mut rng = rand::thread_rng();
+        let glitch_offset: i8 = rng.gen_range(-(max_jump as i8)..=max_jump as i8);
+        let new_level = (level as i8 + glitch_offset).clamp(0,65); // Ensure level stays within 0-6
+        new_level as u8
+    }
+
+    let glitch_duration = match current_level {
+        1 => 2..=5,       // Short glitch sequence for low activity
+        2 | 3 => 5..=10,   // Medium duration for moderate activity
+        4 | 5 | 6 => 7..=15,  // Longer and more erratic for high activity
+        _ => 0..=0,       // Fallback, should never reach this as levels are capped
+    };
+
+    let mut rng = rand::thread_rng();
+    let glitch_steps = rng.gen_range(glitch_duration);
+
+    for _ in 0..glitch_steps {
+        let emf_level = match current_level {
+            1 => simulate_glitchy_step(current_level, 2), // Small jumps for light glitches
+            2 | 3 => simulate_glitchy_step(current_level, 3), // Moderate jumps
+            4 | 5 => simulate_glitchy_step(current_level, 5), // Most erratic, max jumps
+            _ => current_level, // Fallback, should not occur
+        };
+
+        if emf_level == 0 {
+            led.turn_off().unwrap();
+        } else {
+            let pcm_data = sounds.get(emf_level as usize - 1);
+            let led_data = colors.get(emf_level as usize - 1);
+    
+            if let Some(led_colors) = led_data {
+                led.set_colors(&led_colors.clone()).unwrap();
+            }
+    
+            for _ in 0..rng.gen_range(3..10) {
+                if let Some(Some(pcm)) = pcm_data {
+                    speaker.play_pcm(pcm, SAMPLE_RATE).unwrap();
+                }
+            }
+        }
+
+        FreeRtos::delay_ms(1);
+    }
+
+    if current_level == 0 {
+        led.turn_off();
+    } else {
+        let revert_led_data = colors.get(current_level as usize - 1);
+        if let Some(led_colors) = revert_led_data {
+            led.set_colors(&led_colors.clone()).unwrap();
+        }
+    }
 }
 
 fn main() {
@@ -335,6 +395,16 @@ fn main() {
                     },
                     COMMAND_GLITCH => {
                         println!("Glitch command received");
+                        match is_sleeping || emf.activity_level == 0 {
+                            true => println!("Command ignored due to invalid state"),
+                            false => glitch(
+                                &COLORS,
+                                &SOUNDS,
+                                &mut led,
+                                &mut speaker,
+                                emf.activity_level
+                            )
+                        }
                     }
                     e => println!("Unknown command received: {}", e)
                 }
